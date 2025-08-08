@@ -11,6 +11,17 @@
 ./zimbra_tag_delta.py \
   --version 10.0.15 \
   --ceiling-tag 10.0.17 \
+  --ceiling-mode skip \
+  --repos-file repos.txt \
+  --workdir . \
+  --format md 
+
+exit
+
+# we do: git fetch --tags so provided the repositories exist, you can place any version or tag releases.
+./zimbra_tag_delta.py \
+  --version 10.0.15 \
+  --ceiling-tag 10.0.17 \
   --ceiling-mode branch \
   --repos-file repos.txt \
   --workdir . \
