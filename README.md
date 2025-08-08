@@ -41,24 +41,134 @@ ls -d zm* > repos.txt
 ./zimbra_tag_delta.py ... --debug
 ```
 
-### Picking the right knobs
+## Options
 
-- `--version` (required): base “you’re running” version.  
-  Base tag becomes nearest ≤ this. Example: if repo has tags `10.0.13, 10.0.15` and you pass `10.0.14`, base=**10.0.13**.
+### `--version <major.minor.patch>` *(required)*
+Base version you are currently running (or evaluating). For each repo, the script selects the **nearest tag at or below** this version in the same major.minor line.
+- If the exact tag does **not** exist in a repo, the script automatically picks the **nearest lower** tag (e.g., `--version 10.0.15` will use `10.0.13` if `10.0.15` is missing but `10.0.13` exists).
+- This mirrors how Zimbra’s build logic falls back to earlier tags when a repo skips versions.
 
-- `--ceiling-tag`: upper bound you care about (often one patch above).  
-  Target becomes nearest ≤ this. If the repo is already at that same tag, there’s no diff.
+**Example**
+```bash
+--version 10.0.15
+```
 
-- `--ceiling-mode`:
-  - `skip`: if no tag ≤ ceiling exists after the base, we **skip** (don’t look at branches). Use this when you want *only* tagged deltas.
-  - `branch`: if no suitable tag exists, compare to the **release/support/hotfix** branch tip. Use this when tags lag but fixes live on release branches.
+---
 
-- `--branches`: branch fallback order when `--ceiling-mode branch` (default excludes `main/master` to avoid dev partials). You can override:
-  ```bash
-  --branches "origin/release/{line}" "origin/support/{line}" "origin/hotfix/{line}"
-  ```
+### `--ceiling-tag <major.minor.patch>`
+Upper bound for the comparison. For each repo, the script selects the **nearest tag at or below** this ceiling within the same major.minor line.
+- This prevents pulling in work beyond the ceiling (e.g., unrelated development for the next train).
 
-- `--debug`: prints per-repo reasoning (all tags found, base/target selected, commit list). Great for sanity checks.
+**Example**
+```bash
+--ceiling-tag 10.0.17
+```
+
+If omitted, the effective default ceiling is **one patch above** `--version`.
+
+---
+
+### `--ceiling-mode {skip|branch}` *(required)*
+What to do if a repo has **no tag at or below** the specified `--ceiling-tag` that is newer than the base:
+- **`skip`** *(recommended for most users)* – Only compare **tag-to-tag**. If the repo has no newer tag within the ceiling, it is skipped. Choose this when you only want published, reproducible tag deltas.
+- **`branch`** – If no suitable tag exists, compare the base tag against the **release/support/hotfix branch tip** for that line (by default: `origin/release/{line}`, `origin/support/{line}`, `origin/hotfix/{line}`). This can reveal **untagged fixes** already merged to release branches. Avoid including `main/master` unless you know you want dev work.
+
+**Examples**
+```bash
+# Only published tags (safest / most common)
+--ceiling-mode skip
+
+# Include untagged work on release branches when tags lag
+--ceiling-mode branch
+```
+
+> Tip: In `branch` mode, pass `--branches` explicitly if your org uses custom branch names.
+
+---
+
+### `--workdir <path>`
+Directory that already contains the Git clones named in `--repos-file`. The script **does not clone** repos; it operates on what’s present locally (and runs `git fetch --tags` to refresh). This keeps the tool fast and predictable and pairs well with your `build_zimbra.sh` workflow.
+
+**Example**
+```bash
+--workdir /srv/zimbra-repos
+```
+
+---
+
+### `--repos-file <file>`
+Plain text file with **one repo name per line** (must match subdirectory names under `--workdir`). Lines starting with `#` are ignored.
+
+**Example**
+```text
+zm-mailbox
+zm-web-client
+zm-core-utils
+```
+```bash
+--repos-file repos.txt
+```
+
+---
+
+### `--branches <patterns...>`
+Branch fallback patterns used **only** when `--ceiling-mode branch` is set. Patterns may include `{line}` which expands to the `major.minor` line from `--version` (e.g., `10.0`).
+
+**Default**
+```text
+origin/release/{line}
+origin/support/{line}
+origin/hotfix/{line}
+```
+> `main`/`master` are intentionally excluded by default to avoid unstable development heads. Add them only if you know you want to include those changes.
+
+**Example**
+```bash
+--branches "origin/release/{line}" "origin/support/{line}" "origin/hotfix/{line}"
+```
+
+---
+
+### `--format {csv|md}`
+Also emit a Markdown rollup (`.md`) alongside CSV/JSON. CSV/JSON are always written; Markdown is optional.
+```bash
+--format md
+```
+
+---
+
+### `--out <path>`
+Output directory for the generated files (`tag_delta_summary_*.csv`, `tag_delta_manifest_*.csv`, `tag_delta_details_*.json`, and optional `tag_delta_report_*.md`). Defaults to `./tag_delta_out`.
+
+```bash
+--out ./reports/tag_delta
+```
+
+---
+
+### `--debug`
+Verbose processing. Prints, per repo: all tags found, selected base/target, and the first ~40 commit subjects between them. Useful to verify selection logic. Core processing and files are generated **with or without** `--debug`.
+
+```bash
+--debug
+```
+
+---
+
+### `-V`, `--tool-version`
+Print the tool’s version string and exit.
+
+```bash
+- V
+```
+
+## Typical Use Patterns
+
+| Goal | Suggested Flags |
+|------|------------------|
+| **Only published tag-to-tag deltas (most users)** | `--version 10.0.15 --ceiling-tag 10.0.17 --ceiling-mode skip --repos-file repos.txt --workdir . --format md` |
+| **Include untagged fixes on release branches** | `--version 10.0.15 --ceiling-tag 10.0.17 --ceiling-mode branch --branches "origin/release/{line}" "origin/support/{line}" "origin/hotfix/{line}" --repos-file repos.txt --workdir . --format md` |
+| **Troubleshoot a specific repo’s selection** | Add `--debug` to either of the above to see per-repo decisions and commit list. |
 
 ## Interpreting scores
 
